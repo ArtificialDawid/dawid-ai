@@ -3,63 +3,105 @@ const express = require("express");
 const path = require("path");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const OLLAMA_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
 
-const TEXT_MODEL = "llama3.2:1b";
-const VISION_MODEL = "llava:7b";
+const PORT = process.env.PORT || 3000;
+
+const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
+const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
+
+const MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
+
+const CLOUDFLARE_URL = CLOUDFLARE_ACCOUNT_ID
+  ? `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/${MODEL}`
+  : null;
+
+const SYSTEM_PROMPT =
+  "You are Dawid's AI, a helpful personal assistant. " +
+  "When the user sends an image, inspect it carefully and answer " +
+  "their question directly. If it contains a question, maths problem, " +
+  "worksheet, code, or instructions, solve it rather than merely " +
+  "describing it. Explain your reasoning briefly when useful. " +
+  "Only transcribe text if the user asks for transcription. " +
+  "If you cannot understand an image, say so honestly. " +
+  "Be concise, accurate, and conversational.";
+
+app.set("trust proxy", 1);
 
 app.use(express.json({ limit: "12mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-app.get("/api/status", async (req, res) => {
-  try {
-    const response = await fetch(`${OLLAMA_URL}/api/tags`);
-    if (!response.ok) throw new Error("Ollama unavailable");
+// Basic per-IP request limit to help protect your free AI allowance.
+const requestCounts = new Map();
 
-    const data = await response.json();
-    const models = (data.models || []).map((m) => m.name);
+app.use("/api/chat", (req, res, next) => {
+  const ip = req.ip || req.socket.remoteAddress;
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const maxRequests = 10;
 
-    const hasModel = (name) =>
-      models.some((m) => m === name || m.startsWith(`${name}:`));
+  let entry = requestCounts.get(ip);
 
-    res.json({
-      connected: true,
-      textModel: TEXT_MODEL,
-      visionModel: VISION_MODEL,
-      textAvailable: hasModel(TEXT_MODEL),
-      visionAvailable: hasModel(VISION_MODEL),
-    });
-  } catch {
-    res.status(503).json({
-      connected: false,
-      textModel: TEXT_MODEL,
-      visionModel: VISION_MODEL,
-      textAvailable: false,
-      visionAvailable: false,
+  if (!entry || now - entry.start > windowMs) {
+    entry = { start: now, count: 0 };
+  }
+
+  entry.count++;
+  requestCounts.set(ip, entry);
+
+  if (entry.count > maxRequests) {
+    return res.status(429).json({
+      error: "Too many messages. Please wait a minute and try again."
     });
   }
+
+  // Keep the in-memory rate-limit map from growing indefinitely.
+  for (const [key, value] of requestCounts) {
+    if (now - value.start > windowMs) {
+      requestCounts.delete(key);
+    }
+  }
+
+  next();
+});
+
+app.get("/api/status", (req, res) => {
+  const configured = Boolean(
+    CLOUDFLARE_ACCOUNT_ID && CLOUDFLARE_API_TOKEN
+  );
+
+  res.json({
+    connected: configured,
+    textModel: MODEL,
+    visionModel: MODEL,
+    textAvailable: configured,
+    visionAvailable: configured
+  });
 });
 
 app.post("/api/chat", async (req, res) => {
+  if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_API_TOKEN) {
+    return res.status(503).json({
+      error: "Cloudflare AI is not configured yet."
+    });
+  }
+
   const { messages, images } = req.body || {};
 
   if (!Array.isArray(messages) || messages.length === 0) {
-    return res.status(400).json({ error: "Send a message first." });
-  }
-
-  if (
-    !Array.isArray(images || []) ||
-    (images || []).length > 3
-  ) {
     return res.status(400).json({
-      error: "Attach no more than 3 images per message.",
+      error: "Send a message first."
     });
   }
 
   const attachedImages = images || [];
 
-  // Only accept base64-encoded JPEG, PNG or WebP images.
+  if (!Array.isArray(attachedImages) || attachedImages.length > 3) {
+    return res.status(400).json({
+      error: "Attach no more than 3 images per message."
+    });
+  }
+
+  // Validate uploaded images.
   for (const image of attachedImages) {
     if (
       !image ||
@@ -69,7 +111,7 @@ app.post("/api/chat", async (req, res) => {
       image.data.length > 3_500_000
     ) {
       return res.status(400).json({
-        error: "Unsupported image or image too large. Use JPEG, PNG or WebP.",
+        error: "Unsupported image or image too large."
       });
     }
   }
@@ -83,121 +125,100 @@ app.post("/api/chat", async (req, res) => {
     .slice(-20)
     .map((m) => ({
       role: m.role,
-      content: m.content.slice(0, 12000),
+      content: m.content.slice(0, 12000)
     }));
 
-  if (!safeMessages.length || safeMessages.at(-1).role !== "user") {
-    return res.status(400).json({ error: "Send a user message first." });
+  if (
+    !safeMessages.length ||
+    safeMessages[safeMessages.length - 1].role !== "user"
+  ) {
+    return res.status(400).json({
+      error: "Send a user message first."
+    });
   }
 
-  const hasImages = attachedImages.length > 0;
-  const model = hasImages ? VISION_MODEL : TEXT_MODEL;
-
-  // Images belong to the current user message only.
-  const lastMessage = safeMessages[safeMessages.length - 1];
-
-  const ollamaMessages = [
+  // Convert the conversation to Cloudflare's message format.
+  const cloudflareMessages = [
     {
       role: "system",
-      content:
-      "You are Dawid's AI, a helpful personal assistant. " +
-      "When the user sends an image, inspect the image carefully and " +
-      "answer the user's question directly. If the image contains a " +
-      "question, maths problem, worksheet, code, or instructions, solve " +
-      "the problem or follow the instructions instead of merely copying " +
-      "or describing the text. Explain your reasoning briefly when useful. " +
-      "Only transcribe text if the user asks for transcription. " +
-      "If you cannot read or understand the image, say so honestly. " +
-      "For text-only messages, answer the text directly without mentioning " +
-      "an image unless the conversation actually requires it. Be concise, " +
-      "accurate, and conversational."
-
+      content: SYSTEM_PROMPT
     },
-    ...safeMessages.map((m, index) => {
-      if (index === safeMessages.length - 1 && m.role === "user" && hasImages) {
+    ...safeMessages.map((message, index) => {
+      if (
+        index === safeMessages.length - 1 &&
+        message.role === "user" &&
+        attachedImages.length > 0
+      ) {
         return {
-          ...m,
-          images: attachedImages.map((image) => image.data),
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: message.content
+            },
+            ...attachedImages.map((image) => ({
+              type: "image_url",
+              image_url: {
+                url: `data:${image.mime};base64,${image.data}`
+              }
+            }))
+          ]
         };
       }
-      return m;
-    }),
+
+      return message;
+    })
   ];
 
-  let upstream;
-
   try {
-    upstream = await fetch(`${OLLAMA_URL}/api/chat`, {
+    const upstream = await fetch(CLOUDFLARE_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Authorization": `Bearer ${CLOUDFLARE_API_TOKEN}`,
+        "Content-Type": "application/json"
+      },
       body: JSON.stringify({
-        model,
-        messages: ollamaMessages,
-        stream: true,
+        messages: cloudflareMessages,
+        stream: false,
+        max_tokens: 512,
+        temperature: 0.6
       }),
-      signal: AbortSignal.timeout(300000),
+      signal: AbortSignal.timeout(120000)
     });
-  } catch {
-    return res.status(502).json({
-      error: "Cannot reach Ollama. Check that its server is running.",
-    });
-  }
 
-  if (!upstream.ok || !upstream.body) {
-    const detail = await upstream.text().catch(() => "");
-    return res.status(502).json({
-      error: `Ollama returned HTTP ${upstream.status}. ${
-        detail.slice(0, 250) || "Check that the required model is installed."
-      }`,
-    });
-  }
+    const data = await upstream.json().catch(() => ({}));
 
-  res.setHeader("Content-Type", "text/plain; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Accel-Buffering", "no");
-
-  const reader = upstream.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() || "";
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-
-        const chunk = JSON.parse(line);
-
-        if (chunk.error) throw new Error(chunk.error);
-
-        if (chunk.message?.content) {
-          res.write(chunk.message.content);
-        }
-      }
+    if (!upstream.ok || data.success === false) {
+      console.error("Cloudflare error:", data.errors || data);
+      return res.status(502).json({
+        error:
+          data.errors?.[0]?.message ||
+          `Cloudflare returned HTTP ${upstream.status}.`
+      });
     }
 
-    buffer += decoder.decode();
+    const answer = data.result?.response;
 
-    if (buffer.trim()) {
-      const chunk = JSON.parse(buffer);
-      if (chunk.error) throw new Error(chunk.error);
-      if (chunk.message?.content) res.write(chunk.message.content);
+    if (typeof answer !== "string") {
+      console.error("Unexpected Cloudflare response:", data);
+      return res.status(502).json({
+        error: "Cloudflare returned an unexpected response."
+      });
     }
 
-    res.end();
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+
+    res.send(answer);
+
   } catch (error) {
-    console.error("Ollama response error:", error.message);
+    console.error("Cloudflare request failed:", error.message);
+
     if (!res.headersSent) {
-      res.status(502).json({ error: "The AI response was interrupted." });
-    } else {
-      res.destroy();
+      res.status(502).json({
+        error: "Could not connect to Cloudflare AI. Please try again."
+      });
     }
   }
 });
