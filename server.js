@@ -3,8 +3,8 @@ const express = require("express");
 const path = require("path");
 
 const app = express();
-const PORT = 3000;
-const OLLAMA_URL = "http://127.0.0.1:11434";
+const PORT = process.env.PORT || 3000;
+const OLLAMA_URL = process.env.OLLAMA_URL || "http://127.0.0.1:11434";
 
 const TEXT_MODEL = "llama3.2:1b";
 const VISION_MODEL = "llava:7b";
@@ -202,6 +202,6 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-app.listen(PORT, "127.0.0.1", () => {
-  console.log(`Dawid's AI is running at http://127.0.0.1:${PORT}`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Dawid's AI is running on port ${PORT}`);
 });
