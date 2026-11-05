@@ -9,11 +9,11 @@ const PORT = process.env.PORT || 3000;
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 
-const MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
+const CHAT_MODEL = "@cf/meta/llama-3.2-11b-vision-instruct";
+const IMAGE_MODEL = "@cf/black-forest-labs/flux-1-schnell";
 
-const CLOUDFLARE_URL = CLOUDFLARE_ACCOUNT_ID
-  ? `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/${MODEL}`
-  : null;
+const CLOUDFLARE_URL = (model) =>
+  `https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/run/${model}`;
 
 const SYSTEM_PROMPT =
   "You are Dawid's AI, a helpful personal assistant. " +
@@ -30,199 +30,296 @@ app.set("trust proxy", 1);
 app.use(express.json({ limit: "12mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-// Basic per-IP request limit to help protect your free AI allowance.
+// Basic per-IP rate limiter.
+// Note: counts reset if the server restarts.
 const requestCounts = new Map();
 
-app.use("/api/chat", (req, res, next) => {
-  const ip = req.ip || req.socket.remoteAddress;
-  const now = Date.now();
-  const windowMs = 60 * 1000;
-  const maxRequests = 10;
+function rateLimit(maxRequests, message) {
+  return (req, res, next) => {
+    const ip = req.ip || req.socket.remoteAddress;
+    const now = Date.now();
+    const windowMs = 60 * 1000;
 
-  let entry = requestCounts.get(ip);
+    let entry = requestCounts.get(ip);
 
-  if (!entry || now - entry.start > windowMs) {
-    entry = { start: now, count: 0 };
-  }
-
-  entry.count++;
-  requestCounts.set(ip, entry);
-
-  if (entry.count > maxRequests) {
-    return res.status(429).json({
-      error: "Too many messages. Please wait a minute and try again."
-    });
-  }
-
-  // Keep the in-memory rate-limit map from growing indefinitely.
-  for (const [key, value] of requestCounts) {
-    if (now - value.start > windowMs) {
-      requestCounts.delete(key);
+    if (!entry || now - entry.start >= windowMs) {
+      entry = { start: now, count: 0 };
     }
-  }
 
-  next();
-});
+    entry.count++;
+    requestCounts.set(ip, entry);
 
-app.get("/api/status", (req, res) => {
-  const configured = Boolean(
+    if (entry.count > maxRequests) {
+      return res.status(429).json({ error: message });
+    }
+
+    // Remove expired entries.
+    for (const [key, value] of requestCounts) {
+      if (now - value.start >= windowMs) {
+        requestCounts.delete(key);
+      }
+    }
+
+    next();
+  };
+}
+
+function cloudflareConfigured() {
+  return Boolean(
     CLOUDFLARE_ACCOUNT_ID && CLOUDFLARE_API_TOKEN
   );
+}
+
+async function callCloudflare(model, body) {
+  return fetch(CLOUDFLARE_URL(model), {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${CLOUDFLARE_API_TOKEN}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(180000)
+  });
+}
+
+// Website and AI connection status.
+app.get("/api/status", (req, res) => {
+  const configured = cloudflareConfigured();
 
   res.json({
     connected: configured,
-    textModel: MODEL,
-    visionModel: MODEL,
+    provider: "Cloudflare Workers AI",
+    textModel: CHAT_MODEL,
+    visionModel: CHAT_MODEL,
+    imageModel: IMAGE_MODEL,
     textAvailable: configured,
-    visionAvailable: configured
+    visionAvailable: configured,
+    imageGenerationAvailable: configured
   });
 });
 
-app.post("/api/chat", async (req, res) => {
-  if (!CLOUDFLARE_ACCOUNT_ID || !CLOUDFLARE_API_TOKEN) {
-    return res.status(503).json({
-      error: "Cloudflare AI is not configured yet."
-    });
-  }
-
-  const { messages, images } = req.body || {};
-
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return res.status(400).json({
-      error: "Send a message first."
-    });
-  }
-
-  const attachedImages = images || [];
-
-  if (!Array.isArray(attachedImages) || attachedImages.length > 3) {
-    return res.status(400).json({
-      error: "Attach no more than 3 images per message."
-    });
-  }
-
-  // Validate uploaded images.
-  for (const image of attachedImages) {
-    if (
-      !image ||
-      !["image/jpeg", "image/png", "image/webp"].includes(image.mime) ||
-      typeof image.data !== "string" ||
-      !/^[A-Za-z0-9+/]+={0,2}$/.test(image.data) ||
-      image.data.length > 3_500_000
-    ) {
-      return res.status(400).json({
-        error: "Unsupported image or image too large."
+// Chat and image recognition.
+app.post(
+  "/api/chat",
+  rateLimit(
+    10,
+    "Too many messages. Please wait a minute and try again."
+  ),
+  async (req, res) => {
+    if (!cloudflareConfigured()) {
+      return res.status(503).json({
+        error: "Cloudflare AI is not configured."
       });
     }
-  }
 
-  const safeMessages = messages
-    .filter(
-      (m) =>
-        ["user", "assistant"].includes(m.role) &&
-        typeof m.content === "string"
-    )
-    .slice(-20)
-    .map((m) => ({
-      role: m.role,
-      content: m.content.slice(0, 12000)
-    }));
+    const { messages, images } = req.body || {};
 
-  if (
-    !safeMessages.length ||
-    safeMessages[safeMessages.length - 1].role !== "user"
-  ) {
-    return res.status(400).json({
-      error: "Send a user message first."
-    });
-  }
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({
+        error: "Send a message first."
+      });
+    }
 
-  // Convert the conversation to Cloudflare's message format.
-  const cloudflareMessages = [
-    {
-      role: "system",
-      content: SYSTEM_PROMPT
-    },
-    ...safeMessages.map((message, index) => {
+    const attachedImages = images || [];
+
+    if (!Array.isArray(attachedImages) || attachedImages.length > 3) {
+      return res.status(400).json({
+        error: "Attach no more than 3 images per message."
+      });
+    }
+
+    for (const image of attachedImages) {
       if (
-        index === safeMessages.length - 1 &&
-        message.role === "user" &&
-        attachedImages.length > 0
+        !image ||
+        !["image/jpeg", "image/png", "image/webp"].includes(image.mime) ||
+        typeof image.data !== "string" ||
+        !/^[A-Za-z0-9+/]+={0,2}$/.test(image.data) ||
+        image.data.length > 3_500_000
       ) {
-        return {
-          role: "user",
-          content: [
-            {
-              type: "text",
-              text: message.content
-            },
-            ...attachedImages.map((image) => ({
-              type: "image_url",
-              image_url: {
-                url: `data:${image.mime};base64,${image.data}`
-              }
-            }))
-          ]
-        };
+        return res.status(400).json({
+          error: "Unsupported image or image too large."
+        });
       }
+    }
 
-      return message;
-    })
-  ];
+    const safeMessages = messages
+      .filter(
+        (m) =>
+          ["user", "assistant"].includes(m.role) &&
+          typeof m.content === "string"
+      )
+      .slice(-20)
+      .map((m) => ({
+        role: m.role,
+        content: m.content.slice(0, 12000)
+      }));
 
-  try {
-    const upstream = await fetch(CLOUDFLARE_URL, {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${CLOUDFLARE_API_TOKEN}`,
-        "Content-Type": "application/json"
+    if (
+      !safeMessages.length ||
+      safeMessages[safeMessages.length - 1].role !== "user"
+    ) {
+      return res.status(400).json({
+        error: "Send a user message first."
+      });
+    }
+
+    const cloudflareMessages = [
+      {
+        role: "system",
+        content: SYSTEM_PROMPT
       },
-      body: JSON.stringify({
+      ...safeMessages.map((message, index) => {
+        if (
+          index === safeMessages.length - 1 &&
+          message.role === "user" &&
+          attachedImages.length > 0
+        ) {
+          return {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: message.content
+              },
+              ...attachedImages.map((image) => ({
+                type: "image_url",
+                image_url: {
+                  url: `data:${image.mime};base64,${image.data}`
+                }
+              }))
+            ]
+          };
+        }
+
+        return message;
+      })
+    ];
+
+    try {
+      const upstream = await callCloudflare(CHAT_MODEL, {
         messages: cloudflareMessages,
         stream: false,
         max_tokens: 512,
         temperature: 0.6
-      }),
-      signal: AbortSignal.timeout(120000)
-    });
-
-    const data = await upstream.json().catch(() => ({}));
-
-    if (!upstream.ok || data.success === false) {
-      console.error("Cloudflare error:", data.errors || data);
-      return res.status(502).json({
-        error:
-          data.errors?.[0]?.message ||
-          `Cloudflare returned HTTP ${upstream.status}.`
       });
-    }
 
-    const answer = data.result?.response;
+      const data = await upstream.json().catch(() => ({}));
 
-    if (typeof answer !== "string") {
-      console.error("Unexpected Cloudflare response:", data);
-      return res.status(502).json({
-        error: "Cloudflare returned an unexpected response."
-      });
-    }
+      if (!upstream.ok || data.success === false) {
+        console.error("Cloudflare chat error:", data.errors || data);
 
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.setHeader("X-Content-Type-Options", "nosniff");
+        return res.status(502).json({
+          error:
+            data.errors?.[0]?.message ||
+            `Cloudflare returned HTTP ${upstream.status}.`
+        });
+      }
 
-    res.send(answer);
+      const answer = data.result?.response;
 
-  } catch (error) {
-    console.error("Cloudflare request failed:", error.message);
+      if (typeof answer !== "string") {
+        return res.status(502).json({
+          error: "Cloudflare returned an unexpected chat response."
+        });
+      }
 
-    if (!res.headersSent) {
+      res.setHeader("Content-Type", "text/plain; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("X-Content-Type-Options", "nosniff");
+
+      res.send(answer);
+
+    } catch (error) {
+      console.error("Cloudflare chat failed:", error.message);
+
       res.status(502).json({
         error: "Could not connect to Cloudflare AI. Please try again."
       });
     }
   }
-});
+);
+
+// AI image generation.
+app.post(
+  "/api/generate-image",
+  rateLimit(
+    3,
+    "You've reached the image generation limit. Please wait a minute."
+  ),
+  async (req, res) => {
+    if (!cloudflareConfigured()) {
+      return res.status(503).json({
+        error: "Cloudflare AI is not configured."
+      });
+    }
+
+    const prompt =
+      typeof req.body?.prompt === "string"
+        ? req.body.prompt.trim()
+        : "";
+
+    if (!prompt) {
+      return res.status(400).json({
+        error: "Please enter an image description."
+      });
+    }
+
+    if (prompt.length > 2048) {
+      return res.status(400).json({
+        error: "Your prompt must be 2048 characters or fewer."
+      });
+    }
+
+    try {
+      const upstream = await callCloudflare(IMAGE_MODEL, {
+        prompt,
+        steps: 4
+      });
+
+      const data = await upstream.json().catch(() => ({}));
+
+      if (!upstream.ok || data.success === false) {
+        console.error("Cloudflare image error:", data.errors || data);
+
+        return res.status(502).json({
+          error:
+            data.errors?.[0]?.message ||
+            `Image generation failed (HTTP ${upstream.status}).`
+        });
+      }
+
+      const generatedImage = data.result?.image;
+
+      if (
+        typeof generatedImage !== "string" ||
+        !/^[A-Za-z0-9+/]+={0,2}$/.test(generatedImage)
+      ) {
+        console.error("Unexpected image response from Cloudflare.");
+
+        return res.status(502).json({
+          error: "Cloudflare returned an invalid image."
+        });
+      }
+
+      res.json({
+        success: true,
+        image: `data:image/jpeg;base64,${generatedImage}`,
+        prompt
+      });
+
+    } catch (error) {
+      console.error("Image generation failed:", error.message);
+
+      res.status(502).json({
+        error: "Could not generate your image. Please try again."
+      });
+    }
+  }
+);
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`Dawid's AI is running on port ${PORT}`);
+  console.log("AI provider: Cloudflare Workers AI");
+  console.log(`Chat model: ${CHAT_MODEL}`);
+  console.log(`Image model: ${IMAGE_MODEL}`);
 });
