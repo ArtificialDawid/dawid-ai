@@ -1,0 +1,12 @@
+node_modules/
+**/node_modules/
+
+tools/node/
+tools/ollama/
+
+models/
+**/models/
+
+.env
+.env.*
+!.env.example

@@ -1,0 +1,196 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#080b14">
+  <title>Dawid's AI — Your AI Space</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <canvas id="particles" aria-hidden="true"></canvas>
+  <div class="cursor-glow" aria-hidden="true"></div>
+
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark"><span>✦</span></div>
+        <div class="brand-copy">
+          <strong>DAWID'S AI<span class="brand-dot">.</span></strong>
+          <small>PERSONAL AI SPACE</small>
+        </div>
+        <button class="icon-btn sidebar-toggle" id="collapseSidebar"
+          aria-label="Collapse sidebar">‹</button>
+      </div>
+
+      <button class="new-chat" id="newChat">
+        <span>＋</span> <span class="sidebar-label">New conversation</span>
+      </button>
+
+      <div class="side-heading sidebar-label">YOUR WORKSPACE</div>
+      <button class="nav-item active" id="homeButton">
+        <span>⌂</span><span class="sidebar-label">Chat studio</span>
+      </button>
+      <button class="nav-item" id="focusButton">
+        <span>✧</span><span class="sidebar-label">Focus mode</span>
+      </button>
+
+      <div class="side-heading sidebar-label history-heading">RECENT CHATS</div>
+      <div id="history" class="history-list"></div>
+
+      <div class="sidebar-bottom">
+        <div class="connection-card">
+          <span class="status-light" id="statusLight"></span>
+          <div class="connection-copy sidebar-label">
+            <strong id="connectionTitle">Connecting...</strong>
+            <small id="connectionDetail">Checking local AI</small>
+          </div>
+        </div>
+        <div class="profile">
+          <div class="avatar">N</div>
+          <div class="profile-copy sidebar-label">
+            <strong>My workspace</strong>
+            <small>Local assistant</small>
+          </div>
+          <span class="profile-dots sidebar-label">•••</span>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-area">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button class="icon-btn mobile-menu" id="mobileMenu"
+            aria-label="Open sidebar">☰</button>
+          <div class="breadcrumb">Workspace <span>/</span>
+            <strong>Chat studio</strong></div>
+        </div>
+        <div class="topbar-right">
+          <div class="model-pill"><span class="mini-dot"></span>
+            <span id="modelName">Llama 3.2 · 1B</span></div>
+          <button class="icon-btn" id="ambientToggle"
+            aria-label="Toggle ambient effects" title="Toggle ambient effects">◉</button>
+        </div>
+      </header>
+
+      <section class="chat-stage">
+        <div class="welcome" id="welcome">
+          <div class="eyebrow"><span class="eyebrow-line"></span>
+            YOUR OWN INTELLIGENCE <span class="eyebrow-line"></span></div>
+
+          <div class="orb-wrap" id="orbWrap" aria-label="Animated Dawid's AI holographic core">
+  <div class="reactor-aura aura-back"></div>
+  <div class="reactor-aura aura-front"></div>
+
+  <div class="reactor-ring ring-one"></div>
+  <div class="reactor-ring ring-two"></div>
+  <div class="reactor-ring ring-three"></div>
+  <div class="reactor-ring ring-four"></div>
+
+  <div class="reactor-orbit orbit-one">
+    <span class="orbit-node node-cyan"></span>
+  </div>
+  <div class="reactor-orbit orbit-two">
+    <span class="orbit-node node-violet"></span>
+  </div>
+  <div class="reactor-orbit orbit-three">
+    <span class="orbit-node node-pink"></span>
+  </div>
+
+  <div class="reactor-body">
+    <div class="reactor-inner-ring"></div>
+    <div class="reactor-inner-ring inner-ring-two"></div>
+
+    <div class="reactor-core">
+      <div class="core-facet facet-one"></div>
+      <div class="core-facet facet-two"></div>
+      <div class="core-facet facet-three"></div>
+      <div class="core-energy"></div>
+      <div class="core-highlight"></div>
+    </div>
+
+    <div class="reactor-scan scan-one"></div>
+    <div class="reactor-scan scan-two"></div>
+  </div>
+
+  <span class="reactor-particle particle-one"></span>
+  <span class="reactor-particle particle-two"></span>
+  <span class="reactor-particle particle-three"></span>
+  <span class="reactor-particle particle-four"></span>
+  <span class="reactor-particle particle-five"></span>
+  <span class="reactor-particle particle-six"></span>
+
+  <div class="reactor-label">
+    <span class="reactor-status-dot"></span>
+    DAWID CORE <span class="reactor-label-divider">/</span> ONLINE
+  </div>
+</div>
+
+          <h1>Ideas begin <span>here.</span></h1>
+          <p class="welcome-copy">A little imagination. A lot of possibility.
+            <br>What shall we explore today?</p>
+
+          <div class="suggestions">
+            <button class="suggestion" data-prompt="Help me build a beautiful website with HTML, CSS and JavaScript.">
+              <span class="suggestion-icon violet">⌘</span>
+              <span><strong>Build something</strong><small>Create a website or app</small></span>
+              <span class="suggestion-arrow">↗</span>
+            </button>
+            <button class="suggestion" data-prompt="Teach me an interesting concept in science in a simple way.">
+              <span class="suggestion-icon blue">✧</span>
+              <span><strong>Explore an idea</strong><small>Learn something new</small></span>
+              <span class="suggestion-arrow">↗</span>
+            </button>
+            <button class="suggestion" data-prompt="Help me brainstorm five original and creative project ideas.">
+              <span class="suggestion-icon pink">✳</span>
+              <span><strong>Get creative</strong><small>Turn thoughts into ideas</small></span>
+              <span class="suggestion-arrow">↗</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="messages" id="messages" aria-live="polite"></div>
+      </section>
+
+      <footer class="composer-area">
+<form class="composer" id="chatForm">
+  <div id="attachmentPreview" class="attachment-preview" hidden></div>
+
+  <textarea id="prompt" rows="1" maxlength="12000"
+    placeholder="Message Dawid's AI... Ask anything."
+    aria-label="Your message"></textarea>
+
+  <div class="composer-bottom">
+    <div class="composer-tools">
+      <input id="imageInput" type="file"
+        accept="image/jpeg,image/png,image/webp"
+        multiple hidden />
+
+      <button type="button" class="tool-btn" id="attachButton"
+        aria-label="Attach images" title="Attach images">
+        <span>＋</span> Image
+      </button>
+
+      <button type="button" class="tool-btn" id="voiceButton"
+        aria-label="Start voice input" title="Voice input">
+        ♩ Voice
+      </button>
+
+      <div class="composer-hint"><span>✧</span> Powered by local AI</div>
+    </div>
+
+    <button type="submit" class="send-btn" id="sendButton">
+      <span id="sendIcon">↑</span>
+      <span class="send-label">Send</span>
+    </button>
+  </div>
+</form>
+<p class="disclaimer">
+  Your prompts are processed locally by Ollama.
+  <span>AI can make mistakes.</span>
+</p>
+
+  <script src="/app.js"></script>
+</body>
+</html>
