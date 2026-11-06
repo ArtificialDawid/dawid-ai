@@ -12,6 +12,12 @@
   <canvas id="particles" aria-hidden="true"></canvas>
   <div class="cursor-glow" aria-hidden="true"></div>
 
+  <div class="image-lightbox" id="imageLightbox" hidden>
+  <button class="lightbox-close" id="lightboxClose" aria-label="Close preview">×</button>
+  <a class="lightbox-download" id="lightboxDownload" download="dawids-ai-image.png">↓ Download</a>
+  <img id="lightboxImage" src="" alt="Image preview">
+</div>
+
   <div class="app-shell">
     <aside class="sidebar" id="sidebar">
       <div class="brand">
@@ -69,6 +75,13 @@
         <div class="topbar-right">
           <div class="model-pill"><span class="mini-dot"></span>
             <span id="modelName">Llama 3.2 · 1B</span></div>
+            <select id="themeSelector" class="theme-selector" aria-label="Choose website theme">
+            <option value="midnight">Midnight</option>
+            <option value="cyberpunk">Cyberpunk</option>
+            <option value="ocean">Ocean</option>
+            <option value="emerald">Emerald</option>
+            <option value="light">Light</option>
+          </select>
           <button class="icon-btn" id="ambientToggle"
             aria-label="Toggle ambient effects" title="Toggle ambient effects">◉</button>
         </div>
@@ -192,7 +205,7 @@
   </div>
 </form>
 <p class="disclaimer">
-  Your prompts are processed locally by Ollama.
+  Your prompts are processed locally by Cloudflare Workers AI.
   <span>AI can make mistakes.</span>
 </p>
 

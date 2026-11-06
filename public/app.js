@@ -28,6 +28,68 @@ const MAX_IMAGE_BYTES = 2.5 * 1024 * 1024;
 const imageInput = $("#imageInput");
 const attachmentPreview = $("#attachmentPreview");
 
+// Image preview / lightbox
+const imageLightbox = $("#imageLightbox");
+const lightboxImage = $("#lightboxImage");
+const lightboxDownload = $("#lightboxDownload");
+
+function openImagePreview(src) {
+  if (!src) return;
+
+  lightboxImage.src = src;
+  lightboxDownload.href = src;
+  imageLightbox.hidden = false;
+  document.body.classList.add("lightbox-open");
+}
+
+function closeImagePreview() {
+  imageLightbox.hidden = true;
+  lightboxImage.src = "";
+  lightboxDownload.removeAttribute("href");
+  document.body.classList.remove("lightbox-open");
+}
+
+$("#lightboxClose").addEventListener("click", closeImagePreview);
+
+imageLightbox.addEventListener("click", (event) => {
+  if (event.target === imageLightbox) {
+    closeImagePreview();
+  }
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !imageLightbox.hidden) {
+    closeImagePreview();
+  }
+});
+
+// Theme selection
+const themeSelector = $("#themeSelector");
+const availableThemes = [
+  "midnight",
+  "cyberpunk",
+  "ocean",
+  "emerald",
+  "light"
+];
+
+function applyTheme(theme) {
+  const selectedTheme = availableThemes.includes(theme)
+    ? theme
+    : "midnight";
+
+  document.body.dataset.theme = selectedTheme;
+  themeSelector.value = selectedTheme;
+
+  localStorage.setItem("dawids-ai-theme", selectedTheme);
+}
+
+themeSelector.addEventListener("change", () => {
+  applyTheme(themeSelector.value);
+});
+
+applyTheme(localStorage.getItem("dawids-ai-theme") || "midnight");
+
 function saveChats() {
   try {
     const allChats = [...chats];
@@ -237,8 +299,12 @@ function renderHistory() {
   history.replaceChildren();
 
   chats.forEach((chat) => {
+    const item = document.createElement("div");
+    item.className = "history-entry";
+
     const button = document.createElement("button");
-    button.className = "history-item" + (chat === activeChat ? " active" : "");
+    button.className =
+      "history-item" + (chat === activeChat ? " active" : "");
     button.textContent = chat.title;
     button.title = chat.title;
 
@@ -247,12 +313,107 @@ function renderHistory() {
       saveChats();
       renderHistory();
       renderChat();
-      if (innerWidth <= 760) sidebar.classList.add("collapsed");
+
+      if (innerWidth <= 760) {
+        sidebar.classList.add("collapsed");
+      }
     });
 
-    history.appendChild(button);
+    const actions = document.createElement("div");
+    actions.className = "history-actions";
+
+    const menuButton = document.createElement("button");
+    menuButton.type = "button";
+    menuButton.className = "history-menu-button";
+    menuButton.textContent = "⋯";
+    menuButton.title = "Chat options";
+    menuButton.setAttribute("aria-label", `Options for ${chat.title}`);
+
+    menuButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+
+      const existing = item.querySelector(".history-popup");
+
+      document.querySelectorAll(".history-popup").forEach((menu) => {
+        menu.remove();
+      });
+
+      if (existing) return;
+
+      const menu = document.createElement("div");
+      menu.className = "history-popup";
+
+      const renameButton = document.createElement("button");
+      renameButton.type = "button";
+      renameButton.textContent = "✎ Rename";
+
+      renameButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+
+        const newTitle = window.prompt(
+          "Enter a new chat name:",
+          chat.title
+        );
+
+        if (newTitle === null) return;
+
+        const trimmedTitle = newTitle.trim();
+
+        if (!trimmedTitle) {
+          alert("The chat name cannot be empty.");
+          return;
+        }
+
+        chat.title = trimmedTitle.slice(0, 60);
+        saveChats();
+        renderHistory();
+      });
+
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "delete-chat-button";
+      deleteButton.textContent = "✕ Delete";
+
+      deleteButton.addEventListener("click", (event) => {
+        event.stopPropagation();
+
+        if (!window.confirm(`Delete "${chat.title}"? This cannot be undone.`)) {
+          return;
+        }
+
+        chats = chats.filter((entry) => entry.id !== chat.id);
+
+        if (activeChat?.id === chat.id) {
+          activeChat = chats[0] || null;
+
+          if (!activeChat) {
+            makeChat();
+            return;
+          }
+
+          renderChat();
+        }
+
+        saveChats();
+        renderHistory();
+      });
+
+      menu.append(renameButton, deleteButton);
+      item.appendChild(menu);
+    });
+
+    actions.appendChild(menuButton);
+    item.append(button, actions);
+    history.appendChild(item);
   });
 }
+
+// Close chat menus when clicking elsewhere.
+document.addEventListener("click", () => {
+  document.querySelectorAll(".history-popup").forEach((menu) => {
+    menu.remove();
+  });
+});
 
 
 function renderChat() {
@@ -309,7 +470,7 @@ function appendMessage(role, content = "", attachments = []) {
       image.loading = "lazy";
 
       image.addEventListener("click", () => {
-        window.open(image.src, "_blank", "noopener");
+        openImagePreview(image.src);
       });
 
       gallery.appendChild(image);
@@ -783,7 +944,7 @@ async function generateImage() {
     image.alt = `Generated image: ${prompt}`;
     image.loading = "lazy";
     image.addEventListener("click", () => {
-      window.open(image.src, "_blank", "noopener");
+      openImagePreview(image.src);
     });
 
     gallery.appendChild(image);
