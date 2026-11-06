@@ -653,3 +653,120 @@ body[data-theme="light"] .markdown-code-block {
     grid-template-columns: 1fr;
   }
 }
+
+/* =========================================================
+   WORKSPACE SETTINGS — LAYOUT AND PERSONALISATION
+========================================================= */
+
+/* Hide duplicate theme and ambient controls in the top bar */
+body.hide-quick-controls #themeSelector,
+body.hide-quick-controls #ambientToggle {
+  display: none !important;
+}
+
+/* Settings sections */
+.upgrade-settings-section {
+  margin-top: 22px;
+}
+
+.upgrade-settings-section h3 {
+  margin: 0 0 8px;
+  color: var(--cyan, #62dfff);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.6px;
+  text-transform: uppercase;
+}
+
+.upgrade-setting {
+  padding: 19px 0;
+}
+
+.upgrade-setting > div {
+  min-width: 0;
+}
+
+/* Message spacing */
+body[data-spacing="compact"] .message {
+  margin-bottom: 10px;
+}
+
+body[data-spacing="compact"] .message-body {
+  padding-top: 2px;
+}
+
+body[data-spacing="compact"] .message-text p {
+  margin-bottom: 7px;
+}
+
+body[data-spacing="comfortable"] .message {
+  margin-bottom: 20px;
+}
+
+body[data-spacing="comfortable"] .message-text p {
+  margin-bottom: 13px;
+}
+
+body[data-spacing="spacious"] .message {
+  margin-bottom: 34px;
+}
+
+body[data-spacing="spacious"] .message-body {
+  padding-top: 5px;
+}
+
+body[data-spacing="spacious"] .message-text {
+  line-height: 1.95;
+}
+
+body[data-spacing="spacious"] .message-text p {
+  margin-bottom: 20px;
+}
+
+/* Message text size */
+body[data-text-size="small"] .message-text {
+  font-size: 12px;
+}
+
+body[data-text-size="medium"] .message-text {
+  font-size: 14px;
+}
+
+body[data-text-size="large"] .message-text {
+  font-size: 16px;
+}
+
+/* Conversation width */
+body[data-chat-width="narrow"] #messages {
+  max-width: 760px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+body[data-chat-width="standard"] #messages {
+  max-width: 1050px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+body[data-chat-width="wide"] #messages {
+  max-width: 1450px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Mobile settings */
+@media (max-width: 600px) {
+  .upgrade-setting {
+    gap: 12px;
+  }
+
+  .upgrade-setting select,
+  .upgrade-setting button {
+    max-width: 100%;
+  }
+
+  .upgrade-settings-section {
+    margin-top: 18px;
+  }
+}

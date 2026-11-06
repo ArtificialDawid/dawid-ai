@@ -571,7 +571,7 @@
   settingsModal.id = "settingsModal";
   settingsModal.hidden = true;
 
-  settingsModal.innerHTML = `
+    settingsModal.innerHTML = `
     <div class="upgrade-modal-card settings-modal-card">
       <div class="upgrade-modal-header">
         <div>
@@ -582,42 +582,98 @@
         <button class="upgrade-close" type="button" aria-label="Close settings">×</button>
       </div>
 
-      <div class="upgrade-setting">
-        <div>
-          <strong>Appearance</strong>
-          <small>Choose your workspace theme.</small>
+      <div class="upgrade-settings-section">
+        <h3>Appearance</h3>
+
+        <div class="upgrade-setting">
+          <div>
+            <strong>Theme</strong>
+            <small>Choose your workspace colours.</small>
+          </div>
+          <select id="upgradeTheme">
+            <option value="midnight">Midnight</option>
+            <option value="cyberpunk">Cyberpunk</option>
+            <option value="ocean">Ocean</option>
+            <option value="emerald">Emerald</option>
+            <option value="light">Light</option>
+          </select>
         </div>
-        <select id="upgradeTheme">
-          <option value="midnight">Midnight</option>
-          <option value="cyberpunk">Cyberpunk</option>
-          <option value="ocean">Ocean</option>
-          <option value="emerald">Emerald</option>
-          <option value="light">Light</option>
-        </select>
+
+        <div class="upgrade-setting">
+          <div>
+            <strong>Ambient effects</strong>
+            <small>Particles, cursor glow and background effects.</small>
+          </div>
+          <button class="upgrade-switch" id="upgradeAmbient" type="button">On</button>
+        </div>
+
+        <div class="upgrade-setting">
+          <div>
+            <strong>Top-bar quick controls</strong>
+            <small>Show or hide the separate theme and ambient buttons.</small>
+          </div>
+          <button class="upgrade-switch" id="upgradeQuickControls" type="button">Off</button>
+        </div>
       </div>
 
-      <div class="upgrade-setting">
-        <div>
-          <strong>Ambient effects</strong>
-          <small>Particles, cursor glow and background effects.</small>
+      <div class="upgrade-settings-section">
+        <h3>Layout and readability</h3>
+
+        <div class="upgrade-setting">
+          <div>
+            <strong>Interface spacing</strong>
+            <small>Choose how much space appears between messages.</small>
+          </div>
+          <select id="upgradeSpacing">
+            <option value="compact">Compact</option>
+            <option value="comfortable">Comfortable</option>
+            <option value="spacious">Spacious</option>
+          </select>
         </div>
-        <button class="upgrade-switch" id="upgradeAmbient" type="button">On</button>
+
+        <div class="upgrade-setting">
+          <div>
+            <strong>Message text size</strong>
+            <small>Make conversation text smaller or larger.</small>
+          </div>
+          <select id="upgradeTextSize">
+            <option value="small">Small</option>
+            <option value="medium">Medium</option>
+            <option value="large">Large</option>
+          </select>
+        </div>
+
+        <div class="upgrade-setting">
+          <div>
+            <strong>Chat width</strong>
+            <small>Control how wide the conversation area is.</small>
+          </div>
+          <select id="upgradeChatWidth">
+            <option value="narrow">Narrow</option>
+            <option value="standard">Standard</option>
+            <option value="wide">Wide</option>
+          </select>
+        </div>
       </div>
 
-      <div class="upgrade-setting">
-        <div>
-          <strong>Export conversations</strong>
-          <small>Download all your saved chats as Markdown.</small>
-        </div>
-        <button class="upgrade-action" id="exportAllChats" type="button">Export all</button>
-      </div>
+      <div class="upgrade-settings-section">
+        <h3>Conversation management</h3>
 
-      <div class="upgrade-setting upgrade-danger-setting">
-        <div>
-          <strong>Clear all conversations</strong>
-          <small>Permanently remove saved chat history from this browser.</small>
+        <div class="upgrade-setting">
+          <div>
+            <strong>Export conversations</strong>
+            <small>Download all your saved chats as Markdown.</small>
+          </div>
+          <button class="upgrade-action" id="exportAllChats" type="button">Export all</button>
         </div>
-        <button class="upgrade-action danger" id="clearAllChats" type="button">Clear history</button>
+
+        <div class="upgrade-setting upgrade-danger-setting">
+          <div>
+            <strong>Clear all conversations</strong>
+            <small>Permanently remove saved chat history from this browser.</small>
+          </div>
+          <button class="upgrade-action danger" id="clearAllChats" type="button">Clear history</button>
+        </div>
       </div>
     </div>
   `;
@@ -635,13 +691,87 @@
   const upgradeTheme = $("#upgradeTheme");
   const upgradeAmbient = $("#upgradeAmbient");
 
+   const upgradeTheme = $("#upgradeTheme");
+  const upgradeAmbient = $("#upgradeAmbient");
+  const upgradeQuickControls = $("#upgradeQuickControls");
+  const upgradeSpacing = $("#upgradeSpacing");
+  const upgradeTextSize = $("#upgradeTextSize");
+  const upgradeChatWidth = $("#upgradeChatWidth");
+
+  const PREFERENCE_KEY = "dawids-ai-workspace-preferences";
+
+  function getPreferences() {
+    try {
+      return JSON.parse(localStorage.getItem(PREFERENCE_KEY) || "{}");
+    } catch {
+      return {};
+    }
+  }
+
+  function savePreference(key, value) {
+    const preferences = getPreferences();
+    preferences[key] = value;
+
+    localStorage.setItem(
+      PREFERENCE_KEY,
+      JSON.stringify(preferences)
+    );
+  }
+
+  function applyWorkspacePreferences() {
+    const preferences = getPreferences();
+
+    const spacing = ["compact", "comfortable", "spacious"].includes(
+      preferences.spacing
+    ) ? preferences.spacing : "comfortable";
+
+    const textSize = ["small", "medium", "large"].includes(
+      preferences.textSize
+    ) ? preferences.textSize : "medium";
+
+    const chatWidth = ["narrow", "standard", "wide"].includes(
+      preferences.chatWidth
+    ) ? preferences.chatWidth : "standard";
+
+    const showQuickControls = preferences.showQuickControls === true;
+
+    document.body.dataset.spacing = spacing;
+    document.body.dataset.textSize = textSize;
+    document.body.dataset.chatWidth = chatWidth;
+
+    document.body.classList.toggle(
+      "hide-quick-controls",
+      !showQuickControls
+    );
+  }
+
   function syncSettings() {
-    const themeSelector = $("#themeSelector");
+    const preferences = getPreferences();
+
     upgradeTheme.value = document.body.dataset.theme || "midnight";
 
-    const isAmbientOff = document.body.classList.contains("ambient-off");
+    const isAmbientOff =
+      document.body.classList.contains("ambient-off");
+
     upgradeAmbient.textContent = isAmbientOff ? "Off" : "On";
     upgradeAmbient.classList.toggle("is-off", isAmbientOff);
+
+    const showQuickControls = preferences.showQuickControls === true;
+
+    upgradeQuickControls.textContent = showQuickControls ? "On" : "Off";
+    upgradeQuickControls.classList.toggle(
+      "is-off",
+      !showQuickControls
+    );
+
+    upgradeSpacing.value =
+      document.body.dataset.spacing || "comfortable";
+
+    upgradeTextSize.value =
+      document.body.dataset.textSize || "medium";
+
+    upgradeChatWidth.value =
+      document.body.dataset.chatWidth || "standard";
   }
 
   upgradeTheme.addEventListener("change", () => {
@@ -660,6 +790,38 @@
     $("#ambientToggle")?.click();
     syncSettings();
   });
+
+  upgradeQuickControls.addEventListener("click", () => {
+    const currentlyHidden =
+      document.body.classList.contains("hide-quick-controls");
+
+    const show = currentlyHidden;
+
+    document.body.classList.toggle(
+      "hide-quick-controls",
+      !show
+    );
+
+    savePreference("showQuickControls", show);
+    syncSettings();
+  });
+
+  upgradeSpacing.addEventListener("change", () => {
+    document.body.dataset.spacing = upgradeSpacing.value;
+    savePreference("spacing", upgradeSpacing.value);
+  });
+
+  upgradeTextSize.addEventListener("change", () => {
+    document.body.dataset.textSize = upgradeTextSize.value;
+    savePreference("textSize", upgradeTextSize.value);
+  });
+
+  upgradeChatWidth.addEventListener("change", () => {
+    document.body.dataset.chatWidth = upgradeChatWidth.value;
+    savePreference("chatWidth", upgradeChatWidth.value);
+  });
+
+  applyWorkspacePreferences();
 
   /* ---------------------------------------------------------
      EXPORT
