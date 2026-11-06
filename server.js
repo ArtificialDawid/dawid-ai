@@ -277,47 +277,47 @@ app.post(
         steps: 4
       });
 
-      if (!upstream.ok) {
-        const errorText = await upstream.text();
-        console.error("Cloudflare image error:", errorText);
+      const data = await upstream.json().catch(() => ({}));
+
+      if (!upstream.ok || data.success === false) {
+        console.error("Cloudflare image error:", data);
 
         return res.status(502).json({
-          error: `Image generation failed (HTTP ${upstream.status}).`
+          error:
+            data.errors?.[0]?.message ||
+            `Cloudflare image generation failed (HTTP ${upstream.status}).`
         });
       }
 
-      // FLUX returns binary image data, not JSON.
-      const imageBuffer = Buffer.from(
-        await upstream.arrayBuffer()
-      );
+      const generatedImage = data.result?.image;
 
-      if (!imageBuffer.length) {
-        throw new Error("Cloudflare returned an empty image.");
+      if (
+        typeof generatedImage !== "string" ||
+        !generatedImage.length
+      ) {
+        console.error(
+          "Unexpected Cloudflare response:",
+          JSON.stringify(data).slice(0, 1000)
+        );
+
+        throw new Error(
+          "Cloudflare did not return an image. Check your Cloudflare AI settings."
+        );
       }
-
-      const contentType =
-        upstream.headers.get("content-type") || "image/jpeg";
-
-      if (!contentType.startsWith("image/")) {
-        console.error("Unexpected image content type:", contentType);
-
-        throw new Error("Cloudflare did not return a valid image.");
-      }
-
-      // Convert binary image data into a Base64 data URL.
-      const base64Image = imageBuffer.toString("base64");
 
       res.json({
         success: true,
-        image: `data:${contentType};base64,${base64Image}`,
+        image: `data:image/jpeg;base64,${generatedImage}`,
         prompt
       });
 
     } catch (error) {
-      console.error("Image generation failed:", error.message);
+      console.error("Image generation failed:", error);
 
       res.status(502).json({
-        error: error.message || "Could not generate your image. Please try again."
+        error:
+          error.message ||
+          "Could not generate your image. Please try again."
       });
     }
   }
