@@ -180,63 +180,116 @@ imageInput.addEventListener("change", async () => {
   renderAttachmentPreview();
 });
 
+
 function resizeCanvas() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
+
   canvas.width = Math.round(innerWidth * dpr);
   canvas.height = Math.round(innerHeight * dpr);
   canvas.style.width = `${innerWidth}px`;
   canvas.style.height = `${innerHeight}px`;
+
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  particles = Array.from(
-    { length: Math.min(75, Math.floor(innerWidth / 17)) },
-    () => ({
-      x: Math.random() * innerWidth,
-      y: Math.random() * innerHeight,
-      r: Math.random() * 1.5 + 0.4,
-      vx: (Math.random() - 0.5) * 0.23,
-      vy: (Math.random() - 0.5) * 0.23,
-      phase: Math.random() * Math.PI * 2,
-    })
+  const particleCount = Math.min(
+    115,
+    Math.max(45, Math.floor((innerWidth * innerHeight) / 14000))
   );
+
+  particles = Array.from({ length: particleCount }, () => ({
+    x: Math.random() * innerWidth,
+    y: Math.random() * innerHeight,
+    r: Math.random() * 1.8 + 0.4,
+    vx: (Math.random() - 0.5) * 0.32,
+    vy: (Math.random() - 0.5) * 0.32,
+    phase: Math.random() * Math.PI * 2,
+    speed: Math.random() * 0.018 + 0.006
+  }));
 }
 
 function animateParticles() {
   ctx.clearRect(0, 0, innerWidth, innerHeight);
   particleFrame++;
 
+  const reducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)"
+  ).matches;
+
   particles.forEach((p, i) => {
-    p.x += p.vx + (ambient ? (mouse.x - p.x) * 0.000015 : 0);
-    p.y += p.vy + (ambient ? (mouse.y - p.y) * 0.000015 : 0);
-    p.phase += 0.015;
+    if (!reducedMotion) {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.phase += p.speed;
 
-    if (p.x < 0) p.x = innerWidth;
-    if (p.x > innerWidth) p.x = 0;
-    if (p.y < 0) p.y = innerHeight;
-    if (p.y > innerHeight) p.y = 0;
+      if (ambient) {
+        const dx = mouse.x - p.x;
+        const dy = mouse.y - p.y;
+        const distance = Math.hypot(dx, dy);
 
-    const alpha = ambient ? 0.18 + (Math.sin(p.phase) + 1) * 0.19 : 0.1;
+        if (distance < 180 && distance > 0) {
+          const force = (1 - distance / 180) * 0.018;
+          p.x -= (dx / distance) * force * 12;
+          p.y -= (dy / distance) * force * 12;
+        }
+      }
+    }
+
+    if (p.x < -10) p.x = innerWidth + 10;
+    if (p.x > innerWidth + 10) p.x = -10;
+    if (p.y < -10) p.y = innerHeight + 10;
+    if (p.y > innerHeight + 10) p.y = -10;
+
+    const twinkle = (Math.sin(p.phase) + 1) / 2;
+    const alpha = ambient
+      ? 0.2 + twinkle * 0.45
+      : 0.12;
+
+    // Soft particle glow
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.r * 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(112, 145, 255, ${alpha * 0.12})`;
+    ctx.fill();
+
+    // Bright particle centre
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(145, 181, 255, ${alpha})`;
+    ctx.fillStyle = `rgba(175, 198, 255, ${alpha})`;
     ctx.fill();
 
     if (!ambient) return;
 
+    // Connecting constellation lines
     for (let j = i + 1; j < particles.length; j++) {
       const q = particles[j];
       const dx = p.x - q.x;
       const dy = p.y - q.y;
-      const dist = Math.hypot(dx, dy);
+      const distance = Math.hypot(dx, dy);
 
-      if (dist < 85) {
+      if (distance < 115) {
+        const strength = (1 - distance / 115) * 0.13;
+
         ctx.beginPath();
         ctx.moveTo(p.x, p.y);
         ctx.lineTo(q.x, q.y);
-        ctx.strokeStyle = `rgba(125, 153, 240, ${(1 - dist / 85) * 0.09})`;
-        ctx.lineWidth = 0.6;
+        ctx.strokeStyle = `rgba(125, 153, 240, ${strength})`;
+        ctx.lineWidth = 0.7;
         ctx.stroke();
       }
+    }
+
+    // Subtle mouse energy field
+    const mouseDistance = Math.hypot(
+      mouse.x - p.x,
+      mouse.y - p.y
+    );
+
+    if (mouseDistance < 125) {
+      const strength = 1 - mouseDistance / 125;
+
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 2 + strength * 2, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(160, 190, 255, ${strength * 0.35})`;
+      ctx.fill();
     }
   });
 
@@ -269,14 +322,43 @@ $("#ambientToggle").addEventListener("click", () => {
   document.body.classList.toggle("ambient-off", !ambient);
 });
 
-$("#focusButton").addEventListener("click", () => {
-  document.body.classList.toggle("focus-mode");
-  $("#focusButton").classList.toggle("active");
+// Focus mode controls
+const focusButton = $("#focusButton");
+
+const focusExitButton = document.createElement("button");
+focusExitButton.id = "focusExitButton";
+focusExitButton.type = "button";
+focusExitButton.textContent = "✕ Exit focus mode";
+focusExitButton.hidden = true;
+
+document.body.appendChild(focusExitButton);
+
+function setFocusMode(enabled) {
+  document.body.classList.toggle("focus-mode", enabled);
+  focusButton.classList.toggle("active", enabled);
+  focusExitButton.hidden = !enabled;
+}
+
+focusButton.addEventListener("click", () => {
+  const isActive = document.body.classList.contains("focus-mode");
+  setFocusMode(!isActive);
+});
+
+focusExitButton.addEventListener("click", () => {
+  setFocusMode(false);
 });
 
 $("#homeButton").addEventListener("click", () => {
-  document.body.classList.remove("focus-mode");
-  $("#focusButton").classList.remove("active");
+  setFocusMode(false);
+});
+
+document.addEventListener("keydown", (event) => {
+  if (
+    event.key === "Escape" &&
+    document.body.classList.contains("focus-mode")
+  ) {
+    setFocusMode(false);
+  }
 });
 
 function makeChat() {
@@ -332,16 +414,34 @@ function renderHistory() {
     menuButton.addEventListener("click", (event) => {
       event.stopPropagation();
 
-      const existing = item.querySelector(".history-popup");
+      const existing = document.querySelector(".history-popup");
+      const isSameMenu = existing?.dataset.chatId === String(chat.id);
 
       document.querySelectorAll(".history-popup").forEach((menu) => {
         menu.remove();
       });
 
-      if (existing) return;
+      if (isSameMenu) return;
 
       const menu = document.createElement("div");
       menu.className = "history-popup";
+      menu.dataset.chatId = String(chat.id);
+
+      const rect = menuButton.getBoundingClientRect();
+
+      const menuHeight = 100;
+      const top =
+        rect.bottom + menuHeight > window.innerHeight
+          ? rect.top - menuHeight
+          : rect.bottom + 6;
+
+      const left = Math.min(
+        window.innerWidth - 168,
+        Math.max(8, rect.right - 160)
+      );
+
+menu.style.top = `${Math.max(8, top)}px`;
+menu.style.left = `${left}px`;
 
       const renameButton = document.createElement("button");
       renameButton.type = "button";
@@ -399,7 +499,7 @@ function renderHistory() {
       });
 
       menu.append(renameButton, deleteButton);
-      item.appendChild(menu);
+      document.body.appendChild(menu);
     });
 
     actions.appendChild(menuButton);
@@ -439,7 +539,7 @@ function renderChat() {
 
 function appendMessage(role, content = "", attachments = []) {
   const row = document.createElement("article");
-  row.className = `message ${role}`;
+  row.className = `message ${role} message-enter`;
 
   const avatar = document.createElement("div");
   avatar.className = "message-avatar";
@@ -532,6 +632,8 @@ function showTyping() {
 
 function setBusy(value) {
   busy = value;
+  document.body.classList.toggle("ai-working", value);
+
   sendButton.disabled = value;
   promptBox.disabled = value;
   $("#sendIcon").textContent = value ? "…" : "↑";
@@ -739,7 +841,7 @@ async function checkStatus() {
     $("#modelName").textContent = "Cloudflare Workers AI";
   } catch {
     light.className = "status-light offline";
-    title.textContent = "Ollama offline";
+    title.textContent = "Connection unavailable";
     detail.textContent = "Connection unavailable";
     $("#modelName").textContent = "Unavailable";
   }
