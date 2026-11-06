@@ -1016,6 +1016,26 @@ body.ambient-off #particles { opacity: .12; }
   }
 }
 
+#generateImageButton {
+  border-color: #8d7ff14a;
+  color: #c4baff;
+}
+
+#generateImageButton:hover:not(:disabled) {
+  border-color: #a99aff;
+  background: #9b8cff18;
+  box-shadow: 0 0 18px #8d7ff12b;
+}
+
+#generateImageButton:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.image-generation-status {
+  color: #b8b0ff;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .reactor-ring,
   .reactor-orbit,

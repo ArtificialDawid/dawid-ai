@@ -10,7 +10,9 @@ const messagesBox = $("#messages");
 const form = $("#chatForm");
 const promptBox = $("#prompt");
 const sendButton = $("#sendButton");
+const generateImageButton = $("#generateImageButton");
 
+let imageGenerationBusy = false;
 let mouse = { x: -1000, y: -1000 };
 let particles = [];
 let activeChat = null;
@@ -288,7 +290,7 @@ function appendMessage(role, content = "", attachments = []) {
   const meta = document.createElement("div");
   meta.className = "message-meta";
   meta.textContent =
-    role === "assistant" ? "DAWID'S AI · LOCAL AI" : "YOU";
+    role === "assistant" ? "DAWID'S AI" : "YOU";
 
   body.appendChild(meta);
 
@@ -355,7 +357,7 @@ function showTyping() {
 
   const meta = document.createElement("div");
   meta.className = "message-meta";
-  meta.textContent = "NOVA · THINKING";
+  meta.textContent = "DAWID'S AI · THINKING";
 
   const dots = document.createElement("div");
   dots.className = "typing-dots";
@@ -558,11 +560,11 @@ async function checkStatus() {
     const status = await response.json();
 
     if (!response.ok || !status.connected) {
-      throw new Error("Ollama offline");
+      throw new Error("Offline");
     }
 
     light.className = "status-light online";
-    title.textContent = "Ollama connected";
+    title.textContent = "Connected";
 
     const modelAvailable =
       status.textAvailable && status.visionAvailable;
@@ -573,12 +575,11 @@ async function checkStatus() {
           status.visionAvailable ? "ready" : "missing"
         }`;
 
-    $("#modelName").textContent =
-      `${status.textModel} / ${status.visionModel}`;
+    $("#modelName").textContent = "Cloudflare Workers AI";
   } catch {
     light.className = "status-light offline";
     title.textContent = "Ollama offline";
-    detail.textContent = "Check that Ollama is running";
+    detail.textContent = "Connection unavailable";
     $("#modelName").textContent = "Unavailable";
   }
 }
@@ -685,6 +686,122 @@ if (chats.length) {
 } else {
   makeChat();
 }
+
+async function generateImage() {
+  const prompt = promptBox.value.trim();
+
+  if (!prompt) {
+    promptBox.focus();
+    promptBox.placeholder = "Describe the image you want to create...";
+    return;
+  }
+
+  if (busy || imageGenerationBusy) return;
+
+  if (!activeChat) makeChat();
+
+  const chat = activeChat;
+  imageGenerationBusy = true;
+  generateImageButton.disabled = true;
+  generateImageButton.textContent = "Creating…";
+  promptBox.disabled = true;
+
+  const userMessage = {
+    role: "user",
+    content: `Create an image: ${prompt}`,
+    attachments: []
+  };
+
+  chat.messages.push(userMessage);
+
+  if (chat.messages.filter(message => message.role === "user").length === 1) {
+    chat.title = prompt.length > 29 ? prompt.slice(0, 29) + "…" : prompt;
+  }
+
+  saveChats();
+  renderHistory();
+  renderChat();
+
+  promptBox.value = "";
+  promptBox.style.height = "auto";
+  messagesBox.classList.add("visible");
+  welcome.hidden = true;
+
+  const status = appendMessage("assistant", "Creating your image…");
+  status.classList.add("image-generation-status");
+  scrollToBottom();
+
+  try {
+    const response = await fetch("/api/generate-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt })
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(result.error || `Image generation failed (${response.status})`);
+    }
+
+    // Accept common response property names from the server.
+    const imageUrl =
+      result.imageUrl ||
+      result.image ||
+      result.url ||
+      (result.data?.image ? `data:image/png;base64,${result.data.image}` : "");
+
+    if (typeof imageUrl !== "string" || !imageUrl) {
+      throw new Error("The server response did not contain an image.");
+    }
+
+    status.remove();
+
+    const imageCaption = appendMessage("assistant", `Generated image: ${prompt}`);
+    const assistantMessage = {
+      role: "assistant",
+      content: `Generated image: ${prompt}`,
+      attachments: [{
+        name: "Generated image",
+        mime: "image/png",
+        dataUrl: imageUrl
+      }]
+    };
+
+    chat.messages.push(assistantMessage);
+    saveChats();
+    renderHistory();
+
+    // Add the image to the message currently shown.
+    const row = imageCaption.closest(".message");
+    const gallery = document.createElement("div");
+    gallery.className = "sent-image-gallery";
+
+    const image = document.createElement("img");
+    image.className = "sent-image";
+    image.src = imageUrl;
+    image.alt = `Generated image: ${prompt}`;
+    image.loading = "lazy";
+    image.addEventListener("click", () => {
+      window.open(image.src, "_blank", "noopener");
+    });
+
+    gallery.appendChild(image);
+    imageCaption.before(gallery);
+    scrollToBottom();
+  } catch (error) {
+    status.textContent = `⚠ ${error.message || "Image generation failed."}`;
+    status.style.color = "#ff9daa";
+  } finally {
+    imageGenerationBusy = false;
+    generateImageButton.disabled = false;
+    generateImageButton.textContent = "✦ Create image";
+    promptBox.disabled = false;
+    promptBox.focus();
+  }
+}
+
+generateImageButton.addEventListener("click", generateImage);
 
 checkStatus();
 setInterval(checkStatus, 30000);
