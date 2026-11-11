@@ -18,6 +18,95 @@ const pool = process.env.DATABASE_URL
     })
   : null;
 
+
+async function initializeDatabase() {
+  if (!pool) {
+    console.log("Database not configured. Skipping setup.");
+    return;
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id BIGSERIAL PRIMARY KEY,
+      email VARCHAR(255) UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      display_name VARCHAR(100),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS conversations (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      title VARCHAR(255) NOT NULL DEFAULT 'New chat',
+      model VARCHAR(150),
+      personality VARCHAR(50) DEFAULT 'friendly',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS messages (
+      id BIGSERIAL PRIMARY KEY,
+      conversation_id BIGINT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+      role VARCHAR(20) NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+      content TEXT NOT NULL,
+      attachments JSONB DEFAULT '[]'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS memories (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      memory_type VARCHAR(50) DEFAULT 'general',
+      is_active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS projects (
+      id BIGSERIAL PRIMARY KEY,
+      user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name VARCHAR(150) NOT NULL,
+      description TEXT DEFAULT '',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS project_files (
+      id BIGSERIAL PRIMARY KEY,
+      project_id BIGINT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      file_name VARCHAR(255) NOT NULL,
+      mime_type VARCHAR(150),
+      storage_key TEXT,
+      metadata JSONB DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS user_settings (
+      user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      preferences JSONB DEFAULT '{}'::jsonb,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_conversations_user
+      ON conversations(user_id);
+
+    CREATE INDEX IF NOT EXISTS idx_messages_conversation
+      ON messages(conversation_id);
+
+    CREATE INDEX IF NOT EXISTS idx_memories_user
+      ON memories(user_id);
+
+    CREATE INDEX IF NOT EXISTS idx_projects_user
+      ON projects(user_id);
+
+    CREATE INDEX IF NOT EXISTS idx_project_files_project
+      ON project_files(project_id);
+  `);
+
+  console.log("Neon database tables initialized successfully.");
+}
+
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
 
@@ -359,9 +448,21 @@ app.post(
   }
 );
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Dawid's AI is running on port ${PORT}`);
-  console.log("AI provider: Cloudflare Workers AI");
-  console.log(`Chat model: ${CHAT_MODEL}`);
-  console.log(`Image model: ${IMAGE_MODEL}`);
-});
+async function startServer() {
+  if (pool) {
+    try {
+      await initializeDatabase();
+    } catch (error) {
+      console.error("Database initialization failed:", error.message);
+    }
+  }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Dawid's AI is running on port ${PORT}`);
+    console.log("AI provider: Cloudflare Workers AI");
+    console.log(`Chat model: ${CHAT_MODEL}`);
+    console.log(`Image model: ${IMAGE_MODEL}`);
+  });
+}
+
+startServer();
