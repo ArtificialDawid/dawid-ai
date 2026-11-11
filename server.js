@@ -1,10 +1,22 @@
 
 const express = require("express");
 const path = require("path");
+const { Pool } = require("pg");
 
 const app = express();
 
 const PORT = process.env.PORT || 3000;
+
+// Neon PostgreSQL database connection
+const pool = process.env.DATABASE_URL
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+      max: 5,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000
+    })
+  : null;
 
 const CLOUDFLARE_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID;
 const CLOUDFLARE_API_TOKEN = process.env.CLOUDFLARE_API_TOKEN;
@@ -81,6 +93,30 @@ async function callCloudflare(model, body) {
     signal: AbortSignal.timeout(180000)
   });
 }
+
+// Check the database connection without exposing credentials
+app.get("/api/db-status", async (req, res) => {
+  if (!pool) {
+    return res.status(503).json({
+      connected: false,
+      message: "DATABASE_URL is not configured"
+    });
+  }
+
+  try {
+    await pool.query("SELECT NOW()");
+    res.json({
+      connected: true,
+      message: "Neon database connected successfully"
+    });
+  } catch (error) {
+    console.error("Database connection error:", error.message);
+    res.status(500).json({
+      connected: false,
+      message: "Database connection failed"
+    });
+  }
+});
 
 // Website and AI connection status.
 app.get("/api/status", (req, res) => {
